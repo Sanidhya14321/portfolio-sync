@@ -114,6 +114,7 @@ export function getDatabase(): SQLiteDB {
 // ── Project operations ───────────────────────────────────────────────────────
 
 export function getAllProjects() {
+  if (!db && !useJsonFallback) initializeDatabase();
   if (useJsonFallback) {
     const data = readJsonDb();
     return data.projects.sort((a: any, b: any) =>
@@ -125,6 +126,7 @@ export function getAllProjects() {
 }
 
 export function getProject(id: string) {
+  if (!db && !useJsonFallback) initializeDatabase();
   if (useJsonFallback) {
     const data = readJsonDb();
     return data.projects.find((p: any) => p.id === id) || null;
@@ -141,6 +143,7 @@ export function createProject(data: {
   github_url?: string;
   is_from_github?: boolean;
 }) {
+  if (!db && !useJsonFallback) initializeDatabase();
   if (useJsonFallback) {
     const dbData = readJsonDb();
     const project = {
@@ -182,6 +185,7 @@ export function createProject(data: {
 }
 
 export function updateProject(id: string, data: Partial<any>) {
+  if (!db && !useJsonFallback) initializeDatabase();
   if (useJsonFallback) {
     const dbData = readJsonDb();
     const idx = dbData.projects.findIndex((p: any) => p.id === id);
@@ -206,6 +210,7 @@ export function updateProjectSyncStatus(
   platform: string,
   status: 'success' | 'failed' | 'pending'
 ) {
+  if (!db && !useJsonFallback) initializeDatabase();
   if (useJsonFallback) {
     const dbData = readJsonDb();
     const idx = dbData.projects.findIndex((p: any) => p.id === id);
@@ -230,6 +235,7 @@ export function updateProjectSyncStatus(
 }
 
 export function deleteProject(id: string) {
+  if (!db && !useJsonFallback) initializeDatabase();
   if (useJsonFallback) {
     const dbData = readJsonDb();
     const before = dbData.projects.length;
@@ -251,6 +257,7 @@ export function insertSyncLog(data: {
   message: string;
   reasoning?: string;
 }) {
+  if (!db && !useJsonFallback) initializeDatabase();
   if (useJsonFallback) {
     const dbData = readJsonDb();
     const id = `sync-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -284,6 +291,7 @@ export function insertSyncLog(data: {
 }
 
 export function getSyncLogs(limit: number = 50) {
+  if (!db && !useJsonFallback) initializeDatabase();
   if (useJsonFallback) {
     const data = readJsonDb();
     return data.sync_logs
@@ -297,6 +305,7 @@ export function getSyncLogs(limit: number = 50) {
 // ── Agent state operations ───────────────────────────────────────────────────
 
 export function getAgentState(key: string): string | null {
+  if (!db && !useJsonFallback) initializeDatabase();
   if (useJsonFallback) {
     const data = readJsonDb();
     return data.agent_state[key] || null;
@@ -307,6 +316,7 @@ export function getAgentState(key: string): string | null {
 }
 
 export function setAgentState(key: string, value: string) {
+  if (!db && !useJsonFallback) initializeDatabase();
   if (useJsonFallback) {
     const data = readJsonDb();
     data.agent_state[key] = value;
