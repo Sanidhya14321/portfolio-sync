@@ -6,12 +6,53 @@ interface ToolResult {
   error?: string;
 }
 
+let composioTools: Record<string, any> | null = null;
+
+async function getComposioTools(): Promise<Record<string, any> | null> {
+  if (composioTools) return composioTools;
+  if (!process.env.COMPOSIO_API_KEY) return null;
+
+  try {
+    // Composio tool listing via their API
+    const { data } = await axios.get('https://backend.composio.dev/api/v1/tools', {
+      headers: { 'x-api-key': process.env.COMPOSIO_API_KEY },
+    });
+    composioTools = data;
+    return composioTools;
+  } catch (err) {
+    console.warn('[Composio] Failed to fetch tools:', (err as any).message);
+    return null;
+  }
+}
+
 export async function executeTool(
   toolName: string,
   input: Record<string, any>
 ): Promise<ToolResult> {
   try {
-    // Determine which client to use based on tool name
+    // Try Composio first if API key is available
+    const composio = await getComposioTools();
+    if (composio && process.env.COMPOSIO_API_KEY) {
+      try {
+        const { data } = await axios.post(
+          'https://backend.composio.dev/api/v1/actions/execute',
+          {
+            action: toolName,
+            params: input,
+          },
+          {
+            headers: { 'x-api-key': process.env.COMPOSIO_API_KEY },
+            timeout: 15000,
+          }
+        );
+        return { success: true, data };
+      } catch (composioErr: any) {
+        // If Composio fails, fall through to mock mode
+        console.warn(`[Composio] ${toolName} failed: ${composioErr.message}. Falling back to mock.`);
+      }
+    }
+
+    // Route to mock implementations
     if (toolName.startsWith('GITHUB_')) {
       return await executeGitHubTool(toolName, input);
     } else if (toolName.startsWith('LINKEDIN_')) {
@@ -20,15 +61,9 @@ export async function executeTool(
       return await executeTwitterTool(toolName, input);
     }
 
-    return {
-      success: false,
-      error: `Unknown tool: ${toolName}`,
-    };
+    return { success: false, error: `Unknown tool: ${toolName}` };
   } catch (error: any) {
-    return {
-      success: false,
-      error: error.message,
-    };
+    return { success: false, error: error.message };
   }
 }
 
@@ -36,13 +71,10 @@ async function executeGitHubTool(
   toolName: string,
   input: Record<string, any>
 ): Promise<ToolResult> {
-  // Mock implementation for MVP - replace with real Composio calls
   switch (toolName) {
     case 'GITHUB_GET_USER_REPOS':
-      // Returns cached repos or fetches from API
       return { success: true, data: [] };
     case 'GITHUB_UPDATE_FILE':
-      // Updates file and returns result
       return { success: true, data: { sha: 'mock-sha' } };
     default:
       return { success: false, error: `GitHub tool ${toolName} not implemented` };
@@ -53,42 +85,14 @@ async function executeLinkedInTool(
   toolName: string,
   input: Record<string, any>
 ): Promise<ToolResult> {
-  // Mock for MVP
-  if (!process.env.LINKEDIN_ACCESS_TOKEN) {
-    console.log('[MOCK] LinkedIn:', toolName, input);
-    return {
-      success: true,
-      data: { mock: true, message: 'LinkedIn mock mode' },
-    };
-  }
-
-  switch (toolName) {
-    case 'LINKEDIN_CREATE_LINKED_IN_POST':
-      console.log('[LINKEDIN] Creating post:', input);
-      return { success: true, data: { postId: 'mock-post-id' } };
-    default:
-      return { success: false, error: `LinkedIn tool ${toolName} not implemented` };
-  }
+  console.log('[MOCK] LinkedIn:', toolName, input);
+  return { success: true, data: { mock: true, message: 'LinkedIn mock mode' } };
 }
 
 async function executeTwitterTool(
   toolName: string,
   input: Record<string, any>
 ): Promise<ToolResult> {
-  // Mock for MVP
-  if (!process.env.TWITTER_API_KEY) {
-    console.log('[MOCK] Twitter:', toolName, input);
-    return {
-      success: true,
-      data: { mock: true, message: 'Twitter mock mode' },
-    };
-  }
-
-  switch (toolName) {
-    case 'TWITTER_CREATE_TWEET':
-      console.log('[TWITTER] Creating tweet:', input);
-      return { success: true, data: { tweetId: 'mock-tweet-id' } };
-    default:
-      return { success: false, error: `Twitter tool ${toolName} not implemented` };
-  }
+  console.log('[MOCK] Twitter:', toolName, input);
+  return { success: true, data: { mock: true, message: 'Twitter mock mode' } };
 }

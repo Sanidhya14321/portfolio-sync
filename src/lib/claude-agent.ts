@@ -1,89 +1,184 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { AGENT_SYSTEM_PROMPT } from './agent-prompt';
 import { executeTool } from './tool-executor';
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
+const OPENROUTER_MODEL = 'anthropic/claude-3.5-sonnet';
 
-interface Message {
-  role: 'user' | 'assistant';
-  content: string | ContentBlock[];
+interface ChatMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  name?: string;
+  tool_call_id?: string;
 }
 
-interface ContentBlock {
-  type: 'text' | 'tool_use' | 'tool_result';
-  text?: string;
-  id?: string;
-  name?: string;
-  input?: Record<string, any>;
-  tool_use_id?: string;
-  content?: string;
+interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+async function callOpenRouter(
+  messages: ChatMessage[],
+  tools?: any[]
+): Promise<{ content: string; toolCalls: ToolCall[] }> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENROUTER_API_KEY is not set. Please add it to your .env.local file.');
+  }
+
+  const body: any = {
+    model: OPENROUTER_MODEL,
+    messages,
+    max_tokens: 4096,
+  };
+
+  if (tools && tools.length > 0) {
+    body.tools = tools;
+    body.tool_choice = 'auto';
+  }
+
+  const response = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'http://localhost:3000',
+      'X-Title': 'Portfolio Sync Agent',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenRouter error ${response.status}: ${errorText}`);
+  }
+
+  const data = await response.json();
+  const choice = data.choices?.[0];
+  if (!choice) {
+    throw new Error('No response from OpenRouter');
+  }
+
+  const message = choice.message;
+  const content = message?.content || '';
+  const toolCalls = message?.tool_calls || [];
+
+  return { content, toolCalls };
+}
+
+function buildToolDefinitions() {
+  return [
+    {
+      type: 'function' as const,
+      function: {
+        name: 'GITHUB_GET_USER_REPOS',
+        description: 'Get all GitHub repositories for a user',
+        parameters: {
+          type: 'object' as const,
+          properties: {
+            username: {
+              type: 'string',
+              description: 'GitHub username (defaults to GITHUB_USERNAME env var)',
+            },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'GITHUB_UPDATE_FILE',
+        description: 'Update a file in a GitHub repository',
+        parameters: {
+          type: 'object' as const,
+          properties: {
+            owner: { type: 'string', description: 'Repository owner' },
+            repo: { type: 'string', description: 'Repository name' },
+            path: { type: 'string', description: 'File path' },
+            content: { type: 'string', description: 'New file content' },
+            message: { type: 'string', description: 'Commit message' },
+          },
+          required: ['owner', 'repo', 'path', 'content', 'message'],
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'LINKEDIN_CREATE_LINKED_IN_POST',
+        description: 'Create a post on LinkedIn',
+        parameters: {
+          type: 'object' as const,
+          properties: {
+            text: { type: 'string', description: 'Post content' },
+          },
+          required: ['text'],
+        },
+      },
+    },
+    {
+      type: 'function' as const,
+      function: {
+        name: 'TWITTER_CREATE_TWEET',
+        description: 'Create a tweet on Twitter/X',
+        parameters: {
+          type: 'object' as const,
+          properties: {
+            text: { type: 'string', description: 'Tweet content' },
+          },
+          required: ['text'],
+        },
+      },
+    },
+  ];
 }
 
 export async function runAgentWorkflow(userPrompt: string): Promise<string> {
-  const messages: Message[] = [
-    {
-      role: 'user',
-      content: userPrompt,
-    },
+  const messages: ChatMessage[] = [
+    { role: 'system', content: AGENT_SYSTEM_PROMPT },
+    { role: 'user', content: userPrompt },
   ];
 
   let finalResponse = '';
+  const tools = buildToolDefinitions();
 
-  // Agent loop - keep running until agent stops using tools
   for (let i = 0; i < 10; i++) {
-    // Max 10 iterations to prevent infinite loops
-    const response = await client.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 4096,
-      system: AGENT_SYSTEM_PROMPT,
-      messages: messages as any,
-    });
+    const { content, toolCalls } = await callOpenRouter(messages, tools);
 
-    // Check if we have tool uses
-    const hasToolUse = response.content.some((block) => block.type === 'tool_use');
-
-    if (!hasToolUse || response.stop_reason === 'end_turn') {
-      // No more tools to call - get final response
-      finalResponse = response.content
-        .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
-        .map((block) => block.text)
-        .join('\n');
+    if (!toolCalls || toolCalls.length === 0) {
+      finalResponse = content;
       break;
     }
 
-    // Add assistant response to messages
+    // Add assistant response with tool calls
     messages.push({
       role: 'assistant',
-      content: response.content as any,
+      content: content || '',
     });
 
-    // Process each tool use and collect results
-    const toolResults: ContentBlock[] = [];
-
-    for (const block of response.content) {
-      if (block.type === 'tool_use') {
-        console.log(`[Agent] Using tool: ${block.name}`);
-        console.log(`[Agent] Input:`, block.input);
-
-        const result = await executeTool(block.name!, block.input || {});
-
-        console.log(`[Agent] Result:`, result);
-
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: JSON.stringify(result),
-        });
+    // Execute each tool call and collect results
+    for (const tc of toolCalls) {
+      console.log(`[Agent] Using tool: ${tc.function.name}`);
+      let input: Record<string, any> = {};
+      try {
+        input = JSON.parse(tc.function.arguments);
+      } catch {
+        console.warn('[Agent] Failed to parse tool arguments');
       }
-    }
+      console.log(`[Agent] Input:`, input);
 
-    // Add tool results as user message
-    if (toolResults.length > 0) {
+      const result = await executeTool(tc.function.name, input);
+      console.log(`[Agent] Result:`, result);
+
       messages.push({
-        role: 'user',
-        content: toolResults as any,
+        role: 'tool',
+        content: JSON.stringify(result),
+        tool_call_id: tc.id,
+        name: tc.function.name,
       });
     }
   }
@@ -91,22 +186,12 @@ export async function runAgentWorkflow(userPrompt: string): Promise<string> {
   return finalResponse;
 }
 
-// Simpler version without tool use (for MVP)
 export async function runAgentThinking(prompt: string): Promise<string> {
-  const response = await client.messages.create({
-    model: 'claude-3-5-sonnet-20241022',
-    max_tokens: 2048,
-    system: AGENT_SYSTEM_PROMPT,
-    messages: [
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ],
-  });
+  const messages: ChatMessage[] = [
+    { role: 'system', content: AGENT_SYSTEM_PROMPT },
+    { role: 'user', content: prompt },
+  ];
 
-  return response.content
-    .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
-    .map((block) => block.text)
-    .join('\n');
+  const { content } = await callOpenRouter(messages);
+  return content;
 }

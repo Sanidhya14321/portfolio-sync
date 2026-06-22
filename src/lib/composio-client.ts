@@ -1,81 +1,84 @@
-// Composio client wrapper
-// Note: The composio-core package may not expose the exact API shown in the guide.
-// This is a simplified wrapper that delegates to direct API calls via tool-executor.ts.
+let composioInstance: any = null;
 
-export async function getGitHubClient() {
-  if (!process.env.GITHUB_TOKEN) {
-    console.warn('GitHub token not configured');
+async function getComposio(): Promise<any | null> {
+  if (!process.env.COMPOSIO_API_KEY) {
+    console.warn('[Composio] COMPOSIO_API_KEY not set');
     return null;
   }
-  return { app: 'github', connected: true };
+  if (!composioInstance) {
+    try {
+      const { Composio } = await import('composio-core');
+      composioInstance = new Composio({ apiKey: process.env.COMPOSIO_API_KEY });
+    } catch (err) {
+      console.warn('[Composio] Failed to load composio-core:', (err as any).message);
+      return null;
+    }
+  }
+  return composioInstance;
+}
+
+export async function getGitHubClient() {
+  const composio = await getComposio();
+  if (!composio) return null;
+  try {
+    const connected = await composio.connectedAccounts.list({ appName: 'github' });
+    if (connected.length > 0) {
+      return { app: 'github', connected: true, account: connected[0] };
+    }
+  } catch {
+    // No connected GitHub account via Composio
+  }
+  return null;
 }
 
 export async function getLinkedInClient() {
-  if (!process.env.LINKEDIN_ACCESS_TOKEN) {
-    console.warn('LinkedIn token not configured - using mock mode');
-    return null;
+  const composio = await getComposio();
+  if (!composio) return null;
+  try {
+    const connected = await composio.connectedAccounts.list({ appName: 'linkedin' });
+    if (connected.length > 0) {
+      return { app: 'linkedin', connected: true, account: connected[0] };
+    }
+  } catch {
+    // No connected LinkedIn account via Composio
   }
-  return { app: 'linkedin', connected: true };
+  return null;
 }
 
 export async function getTwitterClient() {
-  if (!process.env.TWITTER_API_KEY) {
-    console.warn('Twitter credentials not configured - using mock mode');
-    return null;
+  const composio = await getComposio();
+  if (!composio) return null;
+  try {
+    const connected = await composio.connectedAccounts.list({ appName: 'twitter' });
+    if (connected.length > 0) {
+      return { app: 'twitter', connected: true, account: connected[0] };
+    }
+  } catch {
+    // No connected Twitter account via Composio
   }
-  return { app: 'twitter', connected: true };
+  return null;
 }
 
 export async function getAllTools() {
-  const github = await getGitHubClient();
-  const linkedin = await getLinkedInClient();
-  const twitter = await getTwitterClient();
+  const composio = await getComposio();
+  if (!composio) return [];
 
-  const tools = [];
-
-  if (github) {
-    tools.push(
-      ...[
-        'GITHUB_GET_USER',
-        'GITHUB_GET_USER_REPOS',
-        'GITHUB_GET_FILE',
-        'GITHUB_UPDATE_FILE',
-      ].map((name) => ({
-        app: 'github',
-        name,
-        client: github,
-      }))
-    );
+  try {
+    const tools = await composio.tools.list({});
+    return tools;
+  } catch (err) {
+    console.warn('[Composio] Failed to list tools:', (err as any).message);
+    return [];
   }
+}
 
-  if (linkedin) {
-    tools.push(
-      ...[
-        'LINKEDIN_GET_MY_INFO',
-        'LINKEDIN_CREATE_LINKED_IN_POST',
-        'LINKEDIN_CREATE_ARTICLE_OR_URL_SHARE',
-        'LINKEDIN_GET_SHARE_STATS',
-      ].map((name) => ({
-        app: 'linkedin',
-        name,
-        client: linkedin,
-      }))
-    );
+export async function executeComposioAction(
+  actionName: string,
+  params: Record<string, any>
+) {
+  const composio = await getComposio();
+  if (!composio) {
+    throw new Error('Composio not initialized');
   }
-
-  if (twitter) {
-    tools.push(
-      ...[
-        'TWITTER_GET_AUTHENTICATED_USER',
-        'TWITTER_CREATE_TWEET',
-        'TWITTER_GET_RECENT_TWEETS',
-      ].map((name) => ({
-        app: 'twitter',
-        name,
-        client: twitter,
-      }))
-    );
-  }
-
-  return tools;
+  return composio.actions.execute({ actionName, params });
 }

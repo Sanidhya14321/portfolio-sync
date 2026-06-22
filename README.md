@@ -4,20 +4,21 @@ AI-powered portfolio sync tool that automatically syncs your GitHub projects to 
 
 ## Features
 
-- 🤖 AI Agent (Claude) that decides what to share and how to frame it
+- 🤖 AI Agent (via OpenRouter) that decides what to share and how to frame it
 - 📊 Dashboard to monitor sync activity
 - 📁 Project management interface
-- 🔗 GitHub API integration
-- 📝 LinkedIn & Twitter mock integrations (ready for real API keys)
-- 🗄️ SQLite database for state management
+- 🔗 GitHub integration (direct API or via Composio)
+- 📝 LinkedIn & Twitter mock integrations (activate with Composio connected accounts)
+- 🗄️ SQLite database with JSON file fallback
 - ⚙️ Configurable autonomy levels
 
 ## Tech Stack
 
 - Next.js 15 + React 19 + TypeScript
 - Tailwind CSS
-- better-sqlite3
-- Anthropic Claude SDK
+- better-sqlite3 (with JSON fallback)
+- OpenRouter (AI/LLM access)
+- Composio (tool execution for GitHub, LinkedIn, Twitter)
 - Axios
 
 ## Quick Start
@@ -34,17 +35,18 @@ npm install
 
 ```bash
 cp .env.example .env.local
-# Edit .env.local with your API keys
 ```
 
-Required:
-- `ANTHROPIC_API_KEY` - Get from https://console.anthropic.com
-- `GITHUB_TOKEN` - Get from https://github.com/settings/tokens
-- `GITHUB_USERNAME` - Your GitHub username
+**Only 2 API keys are required:**
 
-Optional (for full integrations):
-- `LINKEDIN_ACCESS_TOKEN`
-- `TWITTER_API_KEY` / `TWITTER_API_SECRET`
+| Variable | How to Get |
+|----------|-----------|
+| `OPENROUTER_API_KEY` | Sign up at [openrouter.ai](https://openrouter.ai) → API Keys |
+| `COMPOSIO_API_KEY` | Sign up at [composio.dev](https://composio.dev) → Dashboard → API Keys |
+
+**Optional enhancements:**
+- `GITHUB_TOKEN` — Get from [github.com/settings/tokens](https://github.com/settings/tokens) (for higher rate limits and private repos)
+- `GITHUB_USERNAME` — Your GitHub username (for fetching your repos)
 
 ### 3. Run Locally
 
@@ -53,6 +55,8 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000)
+
+> **Note:** The app is designed for local use. No auth or login system is needed.
 
 ## API Routes
 
@@ -75,14 +79,22 @@ src/
     projects/       # Project management
     settings/       # Settings page
   lib/              # Backend utilities
-    db.ts           # SQLite database
-    github-helper.ts # GitHub API
-    claude-agent.ts # AI agent
+    db.ts           # SQLite + JSON fallback
+    github-helper.ts # GitHub API (with mock fallback)
+    claude-agent.ts # OpenRouter LLM client
     sync-manager.ts # Sync orchestration
-    tool-executor.ts # Tool execution
+    tool-executor.ts # Composio + mock tool execution
+    composio-client.ts # Composio SDK client
     agent-prompt.ts # System prompts
   types/            # TypeScript types
 ```
+
+## How It Works
+
+1. **OpenRouter** provides AI/LLM access (Claude, GPT, etc.) with a single API key
+2. **Composio** handles tool execution for GitHub, LinkedIn, Twitter (connect accounts in Composio dashboard)
+3. If Composio tools aren't available, the app gracefully falls back to mock mode
+4. If GitHub token isn't set, the app uses unauthenticated API or returns sample data
 
 ## License
 

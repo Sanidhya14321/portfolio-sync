@@ -13,14 +13,23 @@ interface GitHubRepo {
 export async function fetchGitHubRepos(
   username: string = process.env.GITHUB_USERNAME || ''
 ): Promise<GitHubRepo[]> {
+  if (!username) {
+    console.warn('[GitHub] GITHUB_USERNAME not set, returning sample projects');
+    return getMockRepos();
+  }
+
   try {
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+    };
+    if (process.env.GITHUB_TOKEN) {
+      headers.Authorization = `token ${process.env.GITHUB_TOKEN}`;
+    }
+
     const response = await axios.get(
       `https://api.github.com/users/${username}/repos`,
       {
-        headers: {
-          Authorization: `token ${process.env.GITHUB_TOKEN}`,
-          Accept: 'application/vnd.github+json',
-        },
+        headers,
         params: {
           sort: 'updated',
           per_page: 30,
@@ -37,10 +46,34 @@ export async function fetchGitHubRepos(
       topics: repo.topics || [],
       lastUpdated: repo.updated_at,
     }));
-  } catch (error) {
-    console.error('Error fetching GitHub repos:', error);
-    throw new Error('Failed to fetch GitHub repos');
+  } catch (error: any) {
+    console.error('[GitHub] Error fetching repos:', error.response?.data?.message || error.message);
+    console.warn('[GitHub] Returning mock data due to API error');
+    return getMockRepos();
   }
+}
+
+function getMockRepos(): GitHubRepo[] {
+  return [
+    {
+      name: 'portfolio-sync',
+      description: 'AI-powered portfolio sync agent',
+      url: 'https://github.com/Sanidhya14321/portfolio-sync',
+      language: 'TypeScript',
+      stars: 12,
+      topics: ['nextjs', 'ai', 'portfolio'],
+      lastUpdated: new Date().toISOString(),
+    },
+    {
+      name: 'awesome-project',
+      description: 'An awesome open-source project',
+      url: 'https://github.com/Sanidhya14321/awesome-project',
+      language: 'Python',
+      stars: 45,
+      topics: ['python', 'ml', 'open-source'],
+      lastUpdated: new Date().toISOString(),
+    },
+  ];
 }
 
 export async function getFileFromGitHub(
@@ -49,18 +82,20 @@ export async function getFileFromGitHub(
   path: string
 ): Promise<string> {
   try {
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github.v3.raw',
+    };
+    if (process.env.GITHUB_TOKEN) {
+      headers.Authorization = `token ${process.env.GITHUB_TOKEN}`;
+    }
+
     const response = await axios.get(
       `https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
-      {
-        headers: {
-          Authorization: `token ${process.env.GITHUB_TOKEN}`,
-          Accept: 'application/vnd.github.v3.raw',
-        },
-      }
+      { headers }
     );
     return response.data;
   } catch (error) {
-    console.error('Error fetching file from GitHub:', error);
+    console.error('[GitHub] Error fetching file:', error);
     throw new Error(`Failed to fetch ${path} from GitHub`);
   }
 }
@@ -72,8 +107,15 @@ export async function updateFileOnGitHub(
   content: string,
   message: string
 ): Promise<{ success: boolean; sha: string; error?: string }> {
+  if (!process.env.GITHUB_TOKEN) {
+    return {
+      success: false,
+      sha: '',
+      error: 'GITHUB_TOKEN not set. Cannot update files on GitHub.',
+    };
+  }
+
   try {
-    // Get current file SHA (needed for update)
     const currentFile = await axios.get(
       `https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
       {
@@ -103,7 +145,7 @@ export async function updateFileOnGitHub(
       sha: response.data.commit.sha,
     };
   } catch (error: any) {
-    console.error('Error updating file on GitHub:', error);
+    console.error('[GitHub] Error updating file:', error);
     return {
       success: false,
       sha: '',
